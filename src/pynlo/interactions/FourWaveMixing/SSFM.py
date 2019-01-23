@@ -29,6 +29,7 @@ from pynlo.interactions.FourWaveMixing import global_variables
 from pynlo.light.PulseBase import Pulse
 import gc
 import scipy.fftpack
+import time
 
 
 try:
@@ -36,10 +37,10 @@ try:
     PYFFTW_AVAILABLE=True
 except:
     PYFFTW_AVAILABLE=False
-    
+
 
 class SSFM:
-    METHOD_SSFM,METHOD_RK4IP = range(2)    
+    METHOD_SSFM,METHOD_RK4IP = range(2)
     def __init__(self,  local_error = 0.001, dz = 1e-5,
                  disable_Raman = False, disable_self_steepening = False,
                  suppress_iteration = True, USE_SIMPLE_RAMAN = False,
@@ -57,12 +58,12 @@ class SSFM:
         self.disable_self_steepening = disable_self_steepening
         self.USE_SIMPLE_RAMAN = USE_SIMPLE_RAMAN
 
-        # Raman fraction; may change depending upon which calculation method 
-        # is used 
+        # Raman fraction; may change depending upon which calculation method
+        # is used
         self.f_R = f_R
         # The value for the old-style Raman response
         self.f_R0 = f_R0
-        
+
         self.tau_1 = tau_1
         self.tau_2 = tau_2
         self.dz = dz
@@ -77,10 +78,10 @@ class SSFM:
         self.betas[:]  =  fiber.get_betas(pulse_in, z=z)
         # self.alpha[:]  = -fiber.get_gain(pulse_in, output_power) # currently alpha cannot change with z
         self.gamma     =  fiber.get_gamma(z=z)
-        
+
         self.betas[:]  = self.conditional_fftshift(self.betas)
         # self.alpha[:]   = self.conditional_fftshift(self.alpha)
-        
+
 
 
     def setup_fftw(self, pulse_in, fiber, output_power, raman_plots = False):
@@ -90,25 +91,25 @@ class SSFM:
         2) it fftshifts betas, omegas, and the Raman response so that no further\n
             shifts are required during integration. This saves lots of time.'''
 
-        
-        self.n = pulse_in.NPTS
-        
-        if PYFFTW_AVAILABLE:
-            
-            self.fft_input    = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.fft_output   = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.ifft_input   = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.ifft_output  = pyfftw.empty_aligned(self.n, dtype='complex128')      
-    
-            self.fft_input_2  = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.fft_output_2 = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.ifft_input_2 = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.ifft_output_2= pyfftw.empty_aligned(self.n, dtype='complex128')      
 
-            self.ifft_input_3 = pyfftw.empty_aligned(self.n, dtype='complex128')      
-            self.ifft_output_3= pyfftw.empty_aligned(self.n, dtype='complex128')      
-    
-    
+        self.n = pulse_in.NPTS
+
+        if PYFFTW_AVAILABLE:
+
+            self.fft_input    = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.fft_output   = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.ifft_input   = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.ifft_output  = pyfftw.empty_aligned(self.n, dtype='complex128')
+
+            self.fft_input_2  = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.fft_output_2 = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.ifft_input_2 = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.ifft_output_2= pyfftw.empty_aligned(self.n, dtype='complex128')
+
+            self.ifft_input_3 = pyfftw.empty_aligned(self.n, dtype='complex128')
+            self.ifft_output_3= pyfftw.empty_aligned(self.n, dtype='complex128')
+
+
             # To be double sure that there are no problems, also make 2 copies of
             # the FFT objects. This lets us nest ifft_2 around a function using ifft
             # without worrying about potential problems.
@@ -122,7 +123,7 @@ class SSFM:
             self.fft_2 = pyfftw.FFTW(self.fft_input_2,
                                      self.fft_output_2,
                                      direction='FFTW_BACKWARD')
-            
+
             self.ifft = pyfftw.FFTW(self.ifft_input,
                                     self.ifft_output,
                                     direction='FFTW_FORWARD')
@@ -131,8 +132,8 @@ class SSFM:
                                       direction='FFTW_FORWARD')
             self.ifft_3 = pyfftw.FFTW(self.ifft_input_3,
                                       self.ifft_output_3,
-                                      direction='FFTW_FORWARD')                                      
-            
+                                      direction='FFTW_FORWARD')
+
         else:
             self.fft_input    = np.ndarray((self.n,), dtype='complex128')
             self.fft_output   = np.ndarray((self.n,), dtype='complex128')
@@ -143,7 +144,7 @@ class SSFM:
             self.fft_output_2 = np.ndarray((self.n,), dtype='complex128')
             self.ifft_input_2 = np.ndarray((self.n,), dtype='complex128')
             self.ifft_output_2= np.ndarray((self.n,), dtype='complex128')
-                                 
+
             # self.fft_input    = pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
             # self.fft_output   = pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
             # self.ifft_input   = pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
@@ -153,50 +154,50 @@ class SSFM:
             # self.fft_output_2 = pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
             # self.ifft_input_2 = pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
             # self.ifft_output_2= pyfftw.empty_aligned(self.n, fft_n, dtype='complex128')
-    
-            
-        self.A_I    = np.ndarray((self.n,), dtype='complex128')      
-        
-        self.A2     = np.ndarray((self.n,), dtype='complex128')
-        self.exp_D  = np.ndarray((self.n,), dtype='complex128')      
-        self.k1     = np.ndarray((self.n,), dtype='complex128')      
-        self.k2     = np.ndarray((self.n,), dtype='complex128')      
-        self.k3     = np.ndarray((self.n,), dtype='complex128')      
-        self.k4     = np.ndarray((self.n,), dtype='complex128')      
-        self.temp   = np.ndarray((self.n,), dtype='complex128')      
-        self.Aw     = np.ndarray((self.n,), dtype='complex128')      
-        self.A2w    = np.ndarray((self.n,), dtype='complex128')      
-        self.dA     = np.ndarray((self.n,), dtype='complex128')      
-        self.dA2    = np.ndarray((self.n,), dtype='complex128')      
-        self.R_A2   = np.ndarray((self.n,), dtype='complex128')      
-        self.dR_A2  = np.ndarray((self.n,), dtype='complex128')      
-        self.omegas = np.ndarray((self.n,), dtype='complex128')              
-        self.alpha  = np.ndarray((self.n,), dtype='complex128')      
-        self.betas  = np.ndarray((self.n,), dtype='complex128')      
-        self.LinearStep_output    = np.ndarray((self.n,), dtype='complex128')              
-        self.A      = np.ndarray((self.n,), dtype='complex128')              
-        self.R      = np.ndarray((self.n,), dtype='complex128')              
-        self.R0     = np.ndarray((self.n,), dtype='complex128')              
-        self.Af     = np.ndarray((self.n,), dtype='complex128')      
-        self.Ac     = np.ndarray((self.n,), dtype='complex128')      
 
-        self.A_I[:] = 0.0        
+
+        self.A_I    = np.ndarray((self.n,), dtype='complex128')
+
+        self.A2     = np.ndarray((self.n,), dtype='complex128')
+        self.exp_D  = np.ndarray((self.n,), dtype='complex128')
+        self.k1     = np.ndarray((self.n,), dtype='complex128')
+        self.k2     = np.ndarray((self.n,), dtype='complex128')
+        self.k3     = np.ndarray((self.n,), dtype='complex128')
+        self.k4     = np.ndarray((self.n,), dtype='complex128')
+        self.temp   = np.ndarray((self.n,), dtype='complex128')
+        self.Aw     = np.ndarray((self.n,), dtype='complex128')
+        self.A2w    = np.ndarray((self.n,), dtype='complex128')
+        self.dA     = np.ndarray((self.n,), dtype='complex128')
+        self.dA2    = np.ndarray((self.n,), dtype='complex128')
+        self.R_A2   = np.ndarray((self.n,), dtype='complex128')
+        self.dR_A2  = np.ndarray((self.n,), dtype='complex128')
+        self.omegas = np.ndarray((self.n,), dtype='complex128')
+        self.alpha  = np.ndarray((self.n,), dtype='complex128')
+        self.betas  = np.ndarray((self.n,), dtype='complex128')
+        self.LinearStep_output    = np.ndarray((self.n,), dtype='complex128')
+        self.A      = np.ndarray((self.n,), dtype='complex128')
+        self.R      = np.ndarray((self.n,), dtype='complex128')
+        self.R0     = np.ndarray((self.n,), dtype='complex128')
+        self.Af     = np.ndarray((self.n,), dtype='complex128')
+        self.Ac     = np.ndarray((self.n,), dtype='complex128')
+
+        self.A_I[:] = 0.0
         self.A2[:]  = 0.0
         self.Af[:]  = 0.0
         self.Ac[:]  = 0.0
         self.A[:]   = 0.0
         self.R[:]   = 0.0
         self.R0[:]  = 0.0
-        
+
         self.omegas[:] =  pulse_in.V_THz
-        self.alpha[:]  = -fiber.get_gain(pulse_in, output_power) 
+        self.alpha[:]  = -fiber.get_gain(pulse_in, output_power)
         self.gamma     =  fiber.gamma
         self.w0        =  pulse_in.center_frequency_THz * 2.0 * np.pi
 
-        self.last_h    =  None      
+        self.last_h    =  None
 
         # if not self.disable_Raman:
-        
+
         self.CalculateRamanResponseFT(pulse_in)
 
         if raman_plots:
@@ -224,10 +225,10 @@ class SSFM:
             plt.title('Abs[A[w]]')
             plt.xlabel('THz')
             plt.show()
-                
+
         # Load up parameters
         self.A[:]       = self.conditional_fftshift(pulse_in.AT)
-        
+
         self.omegas[:]  = self.conditional_fftshift(self.omegas)
         # self.betas[:]   = self.conditional_fftshift(self.betas)
         self.alpha[:]   = self.conditional_fftshift(self.alpha)
@@ -235,10 +236,10 @@ class SSFM:
         self.R0[:]      = self.conditional_fftshift(self.R0)
         print ('pulse energy in ',np.sum(abs(pulse_in.AT)) )
         print ('copied as  ',np.sum(abs(self.A)) )
-        
+
     #-----------------------------------------------------------------------
-    # Calculates the Fourier Transform of R(T). See pg 49 of G. P. Agrawal's 
-    # "Nonlinear fiber optics"  for details 
+    # Calculates the Fourier Transform of R(T). See pg 49 of G. P. Agrawal's
+    # "Nonlinear fiber optics"  for details
     #-----------------------------------------------------------------------
     def CalculateRamanResponseFT(self, pulse):
         """
@@ -248,7 +249,7 @@ class SSFM:
         FFTs. Note that the use of fftshifts is critical here (FFT_t_shift)
         as is the factor of pulse_width.
         """
-        
+
         if self.disable_Raman:
             self.R[:]=1
             return
@@ -257,14 +258,14 @@ class SSFM:
         TAU1 = self.tau_1
         TAU2 = self.tau_2
         F_R = self.f_R
-        C = (TAU1**2+TAU2**2)/(TAU1*TAU2**2)        
+        C = (TAU1**2+TAU2**2)/(TAU1*TAU2**2)
         for i in range(pulse.NPTS):
             omega = self.omegas[i]
             H_R = C*TAU1*TAU2**2 / \
                   (TAU1**2 + TAU2**2 - 2j*omega*TAU1**2*TAU2 - TAU1**2*TAU2**2*omega**2)
             self.R0[i] = (1.0-F_R) + (F_R * H_R)
-        
-        # More conventional way of generating this, via Dudley    
+
+        # More conventional way of generating this, via Dudley
         tau1 = self.tau_1
         tau2 = self.tau_2
         T = pulse.T_ps
@@ -290,8 +291,8 @@ class SSFM:
             RT = (fa + fc)*ha + fb*hb
             RT[0:pulse.NPTS>>1]=0
             RT[:] = RT / np.trapz(RT, T)
-            self.R[:]    = ((1.0-F_R) + pulse.time_window_ps*self.FFT_t_shift(F_R * RT))               
-        # R(t) = (1-fr) Delta[t] + fr ( (fa+fc)*ha(t) + fb hb(t))        
+            self.R[:]    = ((1.0-F_R) + pulse.time_window_ps*self.FFT_t_shift(F_R * RT))
+        # R(t) = (1-fr) Delta[t] + fr ( (fa+fc)*ha(t) + fb hb(t))
         if global_variables.USE_FREQUENCY_DOMAIN_RAMAN:
             self.R[:] = self.R0
 
@@ -302,10 +303,10 @@ class SSFM:
     # dir: 1 - Forward propagation
     #     -1 - Inverse propagation
     #-----------------------------------------------------------------------
-    def integrate_over_dz(self,delta_z, direction=1):        
+    def integrate_over_dz(self,delta_z, direction=1):
 #        print "Propagate: delta_z",delta_z
         dist = delta_z
-        dz = self.dz        
+        dz = self.dz
 
         self.last_h = -1.0  #Force an update of exp_D
         force_last_dz = False
@@ -317,11 +318,11 @@ class SSFM:
         while dist>0.0:
             self.Ac[:] = self.A
             self.Af[:] = self.A
-            
+
             self.Ac[:] = self.Advance(self.Ac,2.0*dz,direction)
             self.Af[:] = self.Advance(self.Af,dz,direction)
             self.Af[:] = self.Advance(self.Af,dz,direction)
-            #delta = |Af - Ac| / |Af| 
+            #delta = |Af - Ac| / |Af|
             delta = self.CalculateLocalError()
 
             old_dz = dz
@@ -340,7 +341,7 @@ class SSFM:
                 else:
                     # accept step after all
                     pass
-            elif (delta >= self.local_error) and (delta<=2.0*self.local_error): 
+            elif (delta >= self.local_error) and (delta<=2.0*self.local_error):
                 # Keep solution, decrease step
                 new_dz = dz / factor
                 if new_dz >= self.dz_min:
@@ -375,7 +376,7 @@ class SSFM:
         if force_last_dz:
             dz = return_dz
         self.dz = dz
- 
+
     def Advance(self,A,dz,direction):
         if self.method == SSFM.METHOD_SSFM:
             if direction==1:
@@ -391,13 +392,13 @@ class SSFM:
         if h!=self.last_h or direction!=self.last_dir or self.last_h is None:
             self.Calculate_expD(h,direction)
             self.last_h = h
-            self.last_dir = direction           
+            self.last_dir = direction
         self.LinearStep_output[:] = self.IFFT_t(self.exp_D * self.FFT_t(A))
         return self.LinearStep_output
 
     def Deriv(self,Aw):
-        """Calculate the temporal derivative using FFT. \n\n MODIFIED from 
-        LaserFOAM original code, now input is in frequency space, output is 
+        """Calculate the temporal derivative using FFT. \n\n MODIFIED from
+        LaserFOAM original code, now input is in frequency space, output is
         temporal derivative. This should save a few FFTs per iteration."""
         return self.IFFT_t(-1.0j*self.omegas * Aw)
 
@@ -417,9 +418,9 @@ class SSFM:
  #
  #
  #        else:
-        self.A2[:]  = np.abs(A)**2   
+        self.A2[:]  = np.abs(A)**2
         self.A2w[:] = self.FFT_t(self.A2)
-   
+
         if self.disable_self_steepening:
             return 1j*self.gamma*self.IFFT_t(self.R*self.A2w)
         else:
@@ -428,20 +429,20 @@ class SSFM:
             self.dA[:]      = self.Deriv(self.Aw)
             self.dA2[:]     = self.Deriv(self.A2w)
             self.dR_A2[:]   = self.IFFT_t(self.R*self.FFT_t(self.dA2))
-        
+
             return 1j*self.gamma*self.R_A2 - (self.gamma/self.w0)* \
                    (self.dR_A2 + np.where(np.abs(A)>1.0E-15,self.dA*self.R_A2/(1.0e-20+A),0.0))
 
 
     def RK4IP(self,A,h,direction):
         """Fourth-order Runge-Kutta in the interaction picture.
-           J. Hult, J. Lightwave Tech. 25, 3770 (2007)."""                   
-        self.A_I[:] = self.LinearStep(A,h,direction)  #Side effect: Rely on LinearStep to recalculate self.exp_D for h/2 and direction dir                
+           J. Hult, J. Lightwave Tech. 25, 3770 (2007)."""
+        self.A_I[:] = self.LinearStep(A,h,direction)  #Side effect: Rely on LinearStep to recalculate self.exp_D for h/2 and direction dir
         self.k1[:] = self.IFFT_t_2(self.exp_D*self.FFT_t_2(h*direction*self.NonlinearOperator(A)*A))
         self.k2[:] = h * direction * self.NonlinearOperator(self.A_I + self.k1/2.0)*\
                         (self.A_I + self.k1/2.0)
         self.k3[:] = h * direction * self.NonlinearOperator(self.A_I + self.k2/2.0)*\
-                        (self.A_I + self.k2/2.0)        
+                        (self.A_I + self.k2/2.0)
         self.temp[:] = self.IFFT_t_2(self.exp_D*self.FFT_t_2(self.A_I+self.k3))
         self.k4[:] = h * direction * self.NonlinearOperator(self.temp)*self.temp
         if not self.suppress_iteration:
@@ -450,61 +451,61 @@ class SSFM:
         return self.IFFT_t_2(self.exp_D * self.FFT_t_2(self.A_I + self.k1/6.0 +\
                 self.k2/3.0 + self.k3/3.0)) + self.k4/6.0
 
-    def Calculate_expD(self,h,direction):        
+    def Calculate_expD(self,h,direction):
         self.exp_D[:] = np.exp(direction*h*0.5*(1j*self.betas-self.alpha/2.0))
 
     def propagate(self, pulse_in, fiber, n_steps, output_power=None, reload_fiber_each_step=False):
         """
-        This is the main user-facing function that allows a pulse to be 
-        propagated along a fiber (or other nonlinear medium). 
-        
+        This is the main user-facing function that allows a pulse to be
+        propagated along a fiber (or other nonlinear medium).
+
         Parameters
         ----------
-        
+
         pulse_in : pulse object
             this is an instance of the :class:`pynlo.light.PulseBase.Pulse` class.
-        
+
         fiber : fiber object
             this is an instance of the :class:`pynlo.media.fibers.fiber.FiberInstance` class.
-        
+
         n_steps : int
             the number of steps requested in the integrator output. Note: the RK4IP integrator
             uses an adaptive step size. It should pick the correct step size automatically,
             so setting n_steps should not affect the accuracy, just the number of points that
             are returned by this funciton.
-        
-        output_power : 
+
+        output_power :
             This parameter is a mystery
-    
+
         reload_fiber_each_step : boolean
-            This flag determines if the fiber parameters should be reloaded every step. It is 
-            necessary if the fiber dispersion or gamma changes along the fiber length. 
-            :func:`pynlo.media.fibers.fiber.FiberInstance.set_dispersion_function` and 
+            This flag determines if the fiber parameters should be reloaded every step. It is
+            necessary if the fiber dispersion or gamma changes along the fiber length.
+            :func:`pynlo.media.fibers.fiber.FiberInstance.set_dispersion_function` and
             :func:`pynlo.media.fibers.fiber.FiberInstance.set_dispersion_function` should be used
             to specify how the dispersion and gamma change with the fiber length
-        
-        
+
+
         Returns
         -------
         z_positions : array of float
             an array of z-positions along the fiber (in meters)
-        
+
         AW : 2D array of complex128
             A 2D numpy array corresponding to the intensities in each *frequency* bin for each
-            step in the z-direction of the fiber. 
-        
+            step in the z-direction of the fiber.
+
         AT : 2D array of complex128
             A 2D numpy array corresponding to the intensities in each *time* bin for each
-            step in the z-direction of the fiber. 
-        
+            step in the z-direction of the fiber.
+
         pulse_out : PulseBase object
-            the pulse after it has propagated through the fiber. This object is suitable for propagation 
+            the pulse after it has propagated through the fiber. This object is suitable for propagation
             through the next fiber!
         """
 
         n_steps = int(n_steps)
-        
-        # Copy parameters from pulse and fiber into class-wide variables                         
+
+        # Copy parameters from pulse and fiber into class-wide variables
         z_positions = np.linspace(0, fiber.length, n_steps + 1)
         if n_steps == 1:
             delta_z = fiber.length
@@ -513,28 +514,34 @@ class SSFM:
 
         AW = np.complex64(np.zeros((pulse_in.NPTS, n_steps)))
         AT = np.complex64(np.copy(AW))
-        
+
         print ("Pulse energy before", fiber.fibertype,":", \
               1e9 * pulse_in.calc_epp(), 'nJ' )
-              
-        pulse_out = Pulse()        
+
+        pulse_out = Pulse()
         pulse_out.clone_pulse(pulse_in)
         self.setup_fftw(pulse_in, fiber, output_power)
-        self.load_fiber_parameters(pulse_in, fiber, output_power) 
-        
+        self.load_fiber_parameters(pulse_in, fiber, output_power)
 
-        for i in range(n_steps):                        
-            print ("Step:", i, "Distance remaining:", fiber.length * (1 - np.float(i)/n_steps) )
-            
+
+        for i in range(n_steps):
+
+
             if reload_fiber_each_step:
-                self.load_fiber_parameters(pulse_in, fiber, output_power, z=i*delta_z) 
-            
-            self.integrate_over_dz(delta_z)            
+                self.load_fiber_parameters(pulse_in, fiber, output_power, z=i*delta_z)
+
+            self.integrate_over_dz(delta_z)
             AW[:,i] = self.conditional_ifftshift(self.FFT_t_2(self.A))
             AT[:,i] = self.conditional_ifftshift(self.A)
             pulse_out.set_AT(self.conditional_ifftshift(self.A))
-            print ("Pulse energy after:", \
-              1e9 * pulse_out.calc_epp(), 'nJ' )
+            to_print = 'Step: {} - Distance remaining: {:.5f}'.format(i, fiber.length * (1 - np.float(i)/n_steps))
+            to_print += " - Pulse energy after: {:.4f} nJ".format(1e9 * pulse_out.calc_epp())
+            print('\r' + to_print ,end = '')
+            time.sleep(0.25)
+            # print ("Step:", i, "Distance remaining:", fiber.length * (1 - np.float(i)/n_steps))
+            # print ("Pulse energy after:", \
+            #   , 'nJ' )
+        print('')
         pulse_out.set_AT(self.conditional_ifftshift(self.A))
 
         print ( "Pulse energy after", fiber.fibertype,":", \
@@ -542,44 +549,44 @@ class SSFM:
 #        print "alpha out:",self.alpha
         self.cleanup()
         return z_positions, AW, AT, pulse_out
-    
-    def calculate_coherence(self, pulse_in, fiber, 
+
+    def calculate_coherence(self, pulse_in, fiber,
                             num_trials=5, random_seed=None, noise_type='one_photon_freq',
                             n_steps=50, output_power=None, reload_fiber_each_step=False):
         """
         This function runs :func:`pynlo.interactions.FourWaveMixing.SSFM.propagate` several times (given by num_trials),
         each time adding random noise to the pulse. By comparing the electric fields of the different pulses,
-        and estimate of the coherence can be made. 
-                            
+        and estimate of the coherence can be made.
+
         The parameters are the same as for :func:`pynlo.interactions.FourWaveMixing.SSFM.propagate`, except as listed below
-        
+
         Parameters
         ----------
-        
+
         num_trials : int
-            this determines the number of trials to be run. 
-        
+            this determines the number of trials to be run.
+
         random_seed : int
             this is the seed for the random noise generation. Default is None, which does not set a seed for the random
-            number generator, which means that the numbers will be completely randomized. 
+            number generator, which means that the numbers will be completely randomized.
             Setting the seed to a number (i.e., random_seed=0) will still generate random numbers for each trial,
             but the results from calculate_coherence will be completely repeatable.
-        
+
         noise_type : str
-            this specifies the method for including random noise onto the pulse. 
+            this specifies the method for including random noise onto the pulse.
             see :func:`pynlo.light.PulseBase.Pulse.add_noise` for the different methods.
-        
+
         Returns
         -------
         g12W : 2D numpy array
             This 2D array gives the g12 parameter as a function of propagation distance and the frequency.
             g12 gives a measure of the coherence of the pulse by comparing several different trials.
-        
+
         results : list of results for each trial
             This is a list, where each item of the list contains (z_positions, AW, AT, pulse_out), the results
             obtained from :func:`pynlo.interactions.FourWaveMixing.SSFM.propagate`.
         """
-        
+
         results = []
         for num in range(0, num_trials):
 
@@ -590,7 +597,7 @@ class SSFM:
 
             results.append((y, AW, AT, pulse_in, pulse_out))
 
-        
+
         for n1, (y, E1, AT, pulsein, pulseout) in enumerate(results):
             for n2, (y, E2, AT, pulsein, pulseout) in enumerate(results):
                 if n1 == n2: continue # don't compare the same trial
@@ -603,12 +610,12 @@ class SSFM:
 
 
         # print g12_stack.shape, g12_stack.transpose().shape
-        g12W = np.abs(np.mean(g12_stack, axis=2))  
-        
-        return g12W, results   
-                            
-        
-        
+        g12W = np.abs(np.mean(g12_stack, axis=2))
+
+        return g12W, results
+
+
+
     def propagate_to_gain_goal(self, pulse_in, fiber, n_steps, power_goal = 1,
                               scalefactor_guess = None, powertol = 0.05):
         """
@@ -618,7 +625,7 @@ class SSFM:
         scalefactor needed to adjust the gain is known it can be passed as
         scalefactor_guess.\n This function returns a tuple of tuples:\n
         ((ys,AWs,ATs,pulse_out), scale_factor)
-        """   
+        """
         if scalefactor_guess is not None:
                 scalefactor = scalefactor_guess
         else:
@@ -627,22 +634,22 @@ class SSFM:
                                                  fiber,
                                                  1,
                                                  output_power = scalefactor *\
-                                                                 power_goal)         
+                                                                 power_goal)
         scalefactor_revised = (power_goal / (pulse_out.calc_epp()*pulse_out.frep))
-        modeled_avg_power   = pulse_out.calc_epp()*pulse_out.frep                                                                 
+        modeled_avg_power   = pulse_out.calc_epp()*pulse_out.frep
         output_scale = scalefactor
         while abs(modeled_avg_power - power_goal) / power_goal > powertol:
             y, AW, AT, pulse_out = self.propagate(pulse_in, fiber,
-                                                     1, output_power = 
+                                                     1, output_power =
                                                      power_goal * scalefactor_revised)
             modeled_avg_power_prev = modeled_avg_power
             modeled_avg_power = pulse_out.calc_epp()*pulse_out.frep
             slope = (modeled_avg_power - modeled_avg_power_prev) /\
-                            (scalefactor_revised - scalefactor)                            
-            yint = modeled_avg_power_prev - slope*scalefactor    
+                            (scalefactor_revised - scalefactor)
+            yint = modeled_avg_power_prev - slope*scalefactor
             # Before updating the scale factor, see if the new or old modeled
             # power is closer to the goal. When the loop ends, whichever is more
-            # accurate is used for final iteration. This makes maximum use of 
+            # accurate is used for final iteration. This makes maximum use of
             # each (computationally expensive) numeric integration
             if abs(modeled_avg_power-power_goal) < \
                         abs(modeled_avg_power_prev-power_goal):
@@ -651,16 +658,16 @@ class SSFM:
                 output_scale = scalefactor
             # Update scalefactor and go to top of loop
             scalefactor = scalefactor_revised
-            scalefactor_revised = (power_goal - yint)/slope                            
+            scalefactor_revised = (power_goal - yint)/slope
         print ('Updated final power:',modeled_avg_power,'W'         )
         return (self.propagate(pulse_in, fiber,
                               n_steps,
                               output_power = power_goal * output_scale),
                 output_scale)
-    def test_raman(self, pulse_in, fiber, output_power = 0): 
-        ''' Function for testing Raman response function. This plots Generates 
+    def test_raman(self, pulse_in, fiber, output_power = 0):
+        ''' Function for testing Raman response function. This plots Generates
             R[w] and makes plots, but does not actually integrate anything.'''
-        # Copy parameters from pulse and fiber into class-wide variables                    
+        # Copy parameters from pulse and fiber into class-wide variables
         print ( "Pulse energy before", fiber.fibertype,":", \
               1e9 * pulse_in.calc_epp(), 'nJ' )
         self.setup_fftw(pulse_in, fiber, output_power, raman_plots = True)
@@ -670,7 +677,7 @@ class SSFM:
         if PYFFTW_AVAILABLE:
             if global_variables.PRE_FFTSHIFT:
                 self.fft_input[:] = A
-                return self.fft()                
+                return self.fft()
             else:
                 self.fft_input[:] = fftshift(A)
                 return ifftshift(self.fft())
@@ -679,7 +686,7 @@ class SSFM:
                 return scipy.fftpack.ifft(A)
             else:
                 return ifftshift(scipy.fftpack.ifft(fftshift(A)))
-    def IFFT_t(self, A):        
+    def IFFT_t(self, A):
         if PYFFTW_AVAILABLE:
             if global_variables.PRE_FFTSHIFT:
                 self.ifft_input[:] = A
@@ -704,7 +711,7 @@ class SSFM:
             return ifftshift(self.ifft())
         else:
             return ifftshift(scipy.fftpack.fft(fftshift(A)))
-    def FFT_t_2(self, A):        
+    def FFT_t_2(self, A):
         if PYFFTW_AVAILABLE:
             if global_variables.PRE_FFTSHIFT:
                 self.fft_input_2[:] = A
@@ -717,7 +724,7 @@ class SSFM:
                 return scipy.fftpack.ifft(A)
             else:
                 return ifftshift(scipy.fftpack.ifft(fftshift(A)))
-    def IFFT_t_2(self, A):        
+    def IFFT_t_2(self, A):
         if PYFFTW_AVAILABLE:
             if global_variables.PRE_FFTSHIFT:
                 self.ifft_input_2[:] = A
@@ -730,9 +737,9 @@ class SSFM:
                 return scipy.fftpack.fft(A)
             else:
                 return ifftshift(scipy.fftpack.fft(fftshift(A)))
-    def IFFT_t_3(self, A):        
+    def IFFT_t_3(self, A):
         if PYFFTW_AVAILABLE:
-            if global_variables.PRE_FFTSHIFT:                
+            if global_variables.PRE_FFTSHIFT:
                 self.ifft_input_3[:] = A
                 return self.ifft_3()
             else:
@@ -743,7 +750,7 @@ class SSFM:
                 return scipy.fftpack.fft(A)
             else:
                 return ifftshift(scipy.fftpack.fft(fftshift(A)))
-            
+
 
     #-----------------------------------------------------------------------
     # Calculates the relative local error.
@@ -767,6 +774,6 @@ class SSFM:
             x[:] = fftshift(x)
             return x
         else:
-            return x            
+            return x
     def cleanup(self):
         gc.collect()
